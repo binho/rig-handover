@@ -1,0 +1,67 @@
+# Preview for review (plan § 3) and its clean-up (plan § 4), ADR 0003.
+# Runs rig in CI, saves one page as a single HTML file and deploys it to GitHub Pages.
+# The HTML is never committed, so a marked copy never enters git history.
+name: preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      night:
+        description: Night to save (runs/<night>.jsonl)
+        default: "2026-10-28"
+        required: true
+      with_marker:
+        description: Keep the lane marker in the banner (off = clean-up, "no marker set")
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Save the page
+        env:
+          LANE_MARKER: ${{ inputs.with_marker && secrets.LANE_MARKER || '' }}
+          NIGHT: ${{ inputs.night }}
+        run: |
+          pnpm start > var-rig.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS localhost:8787/health > /dev/null && break; sleep 1; done
+          mkdir -p var/preview
+          curl -fsS "localhost:8787/digest/$NIGHT" -o var/preview/index.html
+          if [ -n "$LANE_MARKER" ]; then
+            grep -qF "$LANE_MARKER" var/preview/index.html
+          else
+            grep -qF "no marker set" var/preview/index.html
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: var/preview
+          retention-days: 1
+
+  deploy:
+    needs: save
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
