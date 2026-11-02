@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { readNight } from './digest/read.js';
 import { loadConfig, type RigConfig } from './config.js';
+import { readNight } from './digest/read.js';
 import { lane } from './lane.js';
 import { readStatus } from './status.js';
 import { DigestPage } from './views/digest.js';
@@ -11,6 +12,18 @@ export function createApp(config: RigConfig = loadConfig()) {
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true, lane: lane().id }));
+
+  app.get('/api/digest/:night', (c) => {
+    const date = c.req.param('night');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const night = readNight(config.runsDir, date);
+    if (night === null) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    return c.json(night);
+  });
 
   app.get('/', (c) =>
     c.html(
